@@ -1,0 +1,8 @@
+
+flask
+transformers
+torch
+keybert
+sentence-transformers
+Pillow
+requests

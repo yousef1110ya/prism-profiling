@@ -41,3 +41,15 @@ services:
     volumes:
       - /c/neo4j_docker_data:/data  
 
+
+  AI-Model: 
+    build: ./AI-Model
+    ports:
+      - "5000:5000"
+
+  Core:
+    build: ./Core
+    depends_on:
+      - rabbitmq
+      - neo4j
+ 
