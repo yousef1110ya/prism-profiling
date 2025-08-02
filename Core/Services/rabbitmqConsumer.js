@@ -4,6 +4,7 @@ import * as neo4jService from './neo4jService.js';
 import * as User from  './neo4j/user-handler.js';
 import * as Post from  './neo4j/post-handler.js';
 import * as Comment from './neo4j/comment-handler.js';
+import * as Group from './neo4j/group-handler.js';
 export async function startConsumer() {
   // Connect Redis
  // await redisService.connect();
@@ -77,6 +78,18 @@ export async function startConsumer() {
           break;
         case "DeletedComment":
             await Comment.deleteComment(event.data.id);
+          break;
+        case "GroupCreated":
+            await Group.createGroup(event.data);
+            break;
+        case "GroupDeleted":
+            await Group.deleteGroup(event.data.id); 
+          break;
+        case "JoinedGroup": 
+            await Group.joinGroup(event.data.id , event.data.user);
+          break;
+        case "LeaveGroup":
+            await Group.leaveGroup(event.data.id , event.data.user); 
           break;
         default:
             console.warn(`Unhandled event type: ${event.event_type}`);
