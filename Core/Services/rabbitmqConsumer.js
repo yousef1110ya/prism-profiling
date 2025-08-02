@@ -3,6 +3,7 @@ import * as neo4jService from './neo4jService.js';
 //import * as redisService from './redisService.js';
 import * as User from  './neo4j/user-handler.js';
 import * as Post from  './neo4j/post-handler.js';
+import * as Comment from './neo4j/comment-handler.js';
 export async function startConsumer() {
   // Connect Redis
  // await redisService.connect();
@@ -69,6 +70,14 @@ export async function startConsumer() {
               console.log("hanled the unlike function"); 
             }
             break;
+        case "CommentCreated":
+            console.log("hanlding the comment created case in the rabbit consumer ");
+            await Comment.createComment(event.data.user.id , event.data.id , event.data.text,event.data.commentable_id);
+
+          break;
+        case "DeletedComment":
+            await Comment.deleteComment(event.data.id);
+          break;
         default:
             console.warn(`Unhandled event type: ${event.event_type}`);
       }
