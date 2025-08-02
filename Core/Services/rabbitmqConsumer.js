@@ -56,6 +56,19 @@ export async function startConsumer() {
         case "PostCreated" : 
             console.log("creating a post in the event handler")
             await Post.createPost(event.data);
+            break;
+        case "Like" : 
+            if (event.data.likeable_type === "App\\Models\\Post") {
+              await Post.likePost(event.data.id , event.data.likeable_id);
+              console.log("finished the likePost function");
+            }
+            break;
+        case "Unlike":
+            if (event.data.likeable_type === "App\\Models\\Post") {
+              await Post.unlikePost(event.data.id , event.data.likeable_id);
+              console.log("hanled the unlike function"); 
+            }
+            break;
         default:
             console.warn(`Unhandled event type: ${event.event_type}`);
       }
