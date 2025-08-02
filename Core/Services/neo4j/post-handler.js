@@ -1,6 +1,55 @@
 
 import { session } from './Driver.js';
-import axios from 'axios'; 
+import axios from 'axios';
+import {Client} from '@elastic/elasticsearch';
+const client = new Client({node: 'http://localhost:9200'});
+
+async function upsertPost(postId , postData){
+  const {
+    id,
+    text,
+    group_id,
+    media,
+    privacy,
+    created_at,
+    user
+  } = postData;
+
+  // Remove `id` from doc body — Elasticsearch doesn't want it in doc
+  const doc = {
+    text,
+    group_id: group_id ?? null,
+    media: Array.isArray(media) ? media : [],
+    privacy: privacy || 'public',
+    created_at: new Date(created_at).toISOString(),
+    user: {
+      id: user?.id ?? null,
+      name: user?.name ?? null,
+      username: user?.username ?? null,
+      avatar: user?.avatar ?? null,
+      is_private: user?.is_private ?? 0
+    }
+  };
+
+  try {
+    const res = await axios.post(
+      `http://localhost:9200/posts/_update/${id}`,
+      {
+        doc,
+        doc_as_upsert: true
+      },
+      {
+        headers: {
+          'Content-Type': 'application/vnd.elasticsearch+json; compatible-with=8',
+          'Accept': 'application/vnd.elasticsearch+json; compatible-with=8'
+        }
+      }
+    );
+
+    console.log('Upsert successful:', res.data);
+  } catch (err) {
+    console.error('Elasticsearch upsert error', err.response?.data || err.message);
+  }}
 /*
 function getTagsFromTextAndMedia(text , mediaUrls , topN =5) {
   return new Promise((resolve , reject) => {
@@ -56,7 +105,11 @@ export async function createPost(postData) {
   const hashtags = extractHashtags(text);
   const mediaJson = JSON.stringify(media); 
   const mediaURLs = media.map(item => item.url);
-
+  if (postType === 'Post' && privacy === 'public'&& user.is_private === 0) { // if these 2 are true then save that post to the elasticsearch cluster 
+    await upsertPost(id , postData); 
+    console.log('entered the upsertPost condition in post creating function'); 
+    
+  }
   const keywordsResponse = await axios.post(`http://localhost:5000/extract_keywords`, { text },{timeout : 5000});
   const Tags = Array.isArray(keywordsResponse.data.keywords)
   ? keywordsResponse.data.keywords.map(([word]) => word)
@@ -203,7 +256,25 @@ export async function unlikePost(userId , postId){
         postId: postId
       });
     const deletedCount = posts.records[0].get('dc').toNumber(); 
-    if(deletedCount === 1) console.log("deleted the like relationship and all is fun and games ");
+    if(deletedCount === 1) {
+      console.log("deleted the like relationship and all is fun and games ");
+    } else {
+      const Reels = await session.run(`
+      MATCH(u:User {id: $userId})-[l:LIKED]->(p:REEL {id: $postId}) 
+      WITH l  
+      DELETE l 
+      RETURN count(l) AS dc 
+       
+      `,{
+          userId: userId, 
+          postId: postId
+        });
+    const Count = Reels.records[0].get('dc').toNumber(); 
+    if(Count === 1) {
+      console.log("deleted the like relationship for a REEL !!  and all is fun and games ");
+    } 
+    }
+
   }catch(err){
     console.error("there was an error ", err); 
   }
