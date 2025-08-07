@@ -32,67 +32,67 @@ export async function startConsumer() {
         const cacheKey = `event_cache:${event.event_type}:${event.data.id || 'default'}`;
         // messages handling for each type of events . 
       switch (event.event_type) {
-        case "UserCreated":
-            console.log("There is a user created");
-            await User.createUser(event.data.id, event.data.email);
+            case "UserCreated":
+                              console.log("There is a user created");
+                              await User.createUser(event.data.id, event.data.email);
             break;
-        case "UserUpdated":
-            const { id, ...updates } = event.data;
-            await User.updateUser(id, updates);
+            case "UserUpdated":
+                              const { id, ...updates } = event.data;
+                              await User.updateUser(id, updates);
             break;
-        case "UserDeleted":
-            await User.deleteUser(event.data.id);
+            case "UserDeleted":
+                              await User.deleteUser(event.data.id);
             break;
-        case "BlockedUser":
-            await User.blockUser(event.data.id , event.data.target); 
+            case "BlockedUser":
+                              await User.blockUser(event.data.id , event.data.target); 
             break;
-        case "UnblockUser" : 
-            await User.blockUser(event.data.id , event.data.target);
+            case "UnblockUser" : 
+                              await User.blockUser(event.data.id , event.data.target);
             break;
-        case "UserFollowed" : 
-            await User.followUser(event.data.id , event.data.target);
+            case "UserFollowed" : 
+                              await User.followUser(event.data.id , event.data.target);
             break;
-        case "UserUnFollow":
-            await User.unfollowUser(event.data.id , event.data.target); 
+            case "UserUnFollow":
+                              await User.unfollowUser(event.data.id , event.data.target); 
             break;
-        case "PostCreated" : 
-            console.log("creating a post in the event handler")
-            await Post.createPost(event.data);
+            case "PostCreated" : 
+                              console.log("creating a post in the event handler")
+                              await Post.createPost(event.data);
             break;
-        case "Like" : 
-            if (event.data.likeable_type === "App\\Models\\Post") {
-              await Post.likePost(event.data.id , event.data.likeable_id);
-              console.log("finished the likePost function");
-            }
+            case "Like" : 
+                              if (event.data.likeable_type === "App\\Models\\Post") {
+                                      await Post.likePost(event.data.id , event.data.likeable_id);
+                                      console.log("finished the likePost function");
+                              }
             break;
-        case "Unlike":
-            if (event.data.likeable_type === "App\\Models\\Post") {
-              await Post.unlikePost(event.data.id , event.data.likeable_id);
-              console.log("hanled the unlike function"); 
-            }
+            case "Unlike":
+                              if (event.data.likeable_type === "App\\Models\\Post") {
+                                      await Post.unlikePost(event.data.id , event.data.likeable_id);
+                                      console.log("hanled the unlike function"); 
+                              }
             break;
-        case "CommentCreated":
-            console.log("hanlding the comment created case in the rabbit consumer ");
-            await Comment.createComment(event.data.user.id , event.data.id , event.data.text,event.data.commentable_id);
+            case "CommentCreated":
+                              console.log("hanlding the comment created case in the rabbit consumer ");
+                              await Comment.createComment(event.data.user.id , event.data.id , event.data.text,event.data.commentable_id);
 
-          break;
-        case "DeletedComment":
-            await Comment.deleteComment(event.data.id);
-          break;
-        case "GroupCreated":
-            await Group.createGroup(event.data);
             break;
-        case "GroupDeleted":
-            await Group.deleteGroup(event.data.id); 
-          break;
-        case "JoinedGroup": 
-            await Group.joinGroup(event.data.id , event.data.user);
-          break;
-        case "LeaveGroup":
-            await Group.leaveGroup(event.data.id , event.data.user); 
-          break;
-        default:
-            console.warn(`Unhandled event type: ${event.event_type}`);
+            case "DeletedComment":
+                              await Comment.deleteComment(event.data.id);
+            break;
+            case "GroupCreated":
+                              await Group.createGroup(event.data);
+            break;
+            case "GroupDeleted":
+                              await Group.deleteGroup(event.data.id); 
+            break;
+            case "JoinedGroup": 
+                              await Group.joinGroup(event.data.id , event.data.user);
+            break;
+            case "LeaveGroup":
+                              await Group.leaveGroup(event.data.id , event.data.user); 
+            break;
+            default:
+                              console.warn(`Unhandled event type: ${event.event_type}`);
       }
 
       channel.ack(msg);
