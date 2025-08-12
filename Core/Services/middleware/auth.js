@@ -16,7 +16,6 @@ const SECRET_KEY = process.env.JWT_KEY ;
   const JWT_SECRET = process.env.JWT_KEY;
 
   let decoded; 
-  let user;
   try {
     decoded = jwt.verify(token, JWT_SECRET);
     console.log('Decoded payload:', decoded);
@@ -24,13 +23,13 @@ const SECRET_KEY = process.env.JWT_KEY ;
     console.error('Invalid token:', err.message);
     return res.status(401).json({ message: 'Invalid token' });
   }
-  const streamer = {
-    streamerName: decoded.name,
-    streamerId: parseInt(decoded.sub, 10),
-    streamerImage: decoded.avatar,
+  const user = {
+    name: decoded.name,
+    id: parseInt(decoded.sub, 10),
+    avatar: decoded.avatar,
   };
     // Attach user to request
-    req.streamer = streamer;
+    req.user = user;
     next();
 }
 

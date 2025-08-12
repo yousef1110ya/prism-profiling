@@ -1,10 +1,9 @@
 import express from "express";
-import authMiddleware from "../middleware/auth.js"; 
+import authMiddleware from "../middleware/auth.js";
+import {feed} from "../controllers/feed.controller.js";  
 const router = express.Router(); 
 router.use(authMiddleware); 
 
-router.get('/feed', (req,res)=> {
-  res.send("this is the feed page for you !!!"); 
-});
+router.get('/feed', feed);
 
 export default router ; 
