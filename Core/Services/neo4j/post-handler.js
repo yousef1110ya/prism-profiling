@@ -69,6 +69,7 @@ export async function createPost(postData) {
     created_at,
     user
   } = postData;
+  console.log(group_id);
 
   const postType = media.length === 1 && media[0].type === 'video' ? 'REEL' : 'Post';
   const hashtags = extractHashtags(text);
@@ -87,7 +88,7 @@ export async function createPost(postData) {
   const session = driver.session();
  try {
   const tx = session.beginTransaction();
-
+  console.log("entered the post creating function");
   // Ensure the user exists
   await tx.run(
     `
@@ -105,7 +106,7 @@ export async function createPost(postData) {
       is_private: !!user.is_private
     }
   );
-
+  console.log("creating the post or reel ");
   // Create the Post or REEL node with JSON string media
   await tx.run(
     `
@@ -125,7 +126,7 @@ export async function createPost(postData) {
       mediaJson
     }
   );
-
+  console.log("linking the user to the post");
   // Link user to post
   await tx.run(
     `
@@ -140,9 +141,11 @@ export async function createPost(postData) {
 
   // Link post to group if applicable
   if (group_id) {
+
     await tx.run(
       `
-      MERGE (g:Group {id: $groupId})
+      MERGE (g:Group {id: toInteger($groupId)})
+      WITH g
       MATCH (p:${postType} {id: $postId})
       MERGE (p)-[:BELONGS_TO]->(g)
       `,
