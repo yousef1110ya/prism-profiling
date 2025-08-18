@@ -4,7 +4,7 @@ import { driver } from "../neo4j/Driver.js";
 // 4- add the dead-case (return 8 posts and 2 reels to the user in this case ) .
 //
 // Format Neo4j DateTime into ISO string
-function formatDateTime(dt) {
+export function formatDateTime(dt) {
   if (!dt) return null;
   const { year, month, day, hour, minute, second } = dt;
   return new Date(
@@ -18,7 +18,7 @@ function formatDateTime(dt) {
 }
 
 // Parse post/reel with creator + post_type
-function mapContent(record, key, post_type) {
+export function mapContent(record, key, post_type) {
   const node = record.get(key);
   const props = node.properties;
 
@@ -105,6 +105,7 @@ RETURN p2, creator, is_following
 
         OPTIONAL MATCH (u)-[:OWNS]->(g:Group)<-[:BELONGS_TO]-(p)
 
+        WITH DISTINCT u, p, u2, g
         WHERE NOT (u)-[:SEEN]->(p)
 
         WITH DISTINCT u, p, u2, g
@@ -131,6 +132,7 @@ RETURN p2, creator, is_following
         MATCH (u:User {id: $id})-[:FOLLOW]->(followed:User)-[:CREATED]->(reels:REEL)
         OPTIONAL MATCH (u)-[:IS_MEMBER]->(g1:Group)<-[:BELONGS_TO]-(reels) 
         OPTIONAL MATCH (u)-[:OWNS]->(g2:Group)<-[:BELONGS_TO]-(reels) 
+        WITH DISTINCT u, reels, followed, g1 , g2
         WHERE NOT (u)-[:SEEN]->(reels) 
         WITH u, reels, followed
         OPTIONAL MATCH (u)-[f:FOLLOW]->(followed)
@@ -198,7 +200,7 @@ RETURN p2 AS reels, creator, is_following
       );
       const reelResults = reels.map((rec) => mapContent(rec, "reels", "reel"));
 
-      let allResults = [...suggestionResults, ...postResults, ...reelResults];
+      let allResults = [...postResults, ...suggestionResults, ...reelResults];
       if (allResults.length < 10) {
         const remaining = Math.floor(10 - allResults.length);
         console.log(remaining);
@@ -234,9 +236,49 @@ RETURN p2 AS reels, creator, is_following
           mapContent(rec, "p2", "suggestion"),
         );
         allResults = [...allResults, ...suggestion_filler_result];
+        if (allResults.length < 10) {
+          const remainder = Math.floor(10 - allResults.length);
+          const seen_posts = await tx.run(
+            `
+        MATCH (u:User {id: $id})
+
+        OPTIONAL MATCH (u)-[:FOLLOW]->(u2:User)-[:CREATED]->(p:Post)
+        WHERE u <> u2
+
+        OPTIONAL MATCH (u)-[:IS_MEMBER]->(g:Group)<-[:BELONGS_TO]-(p)
+
+        OPTIONAL MATCH (u)-[:OWNS]->(g:Group)<-[:BELONGS_TO]-(p)
+
+        WHERE  (u)-[:SEEN]->(p)
+
+        WITH DISTINCT u, p, u2, g
+        MATCH (u)-[f:FOLLOW]->(u2)
+
+        WITH u, p,
+            CASE WHEN u2 IS NOT NULL THEN u2 END AS creator,
+            CASE WHEN g IS NOT NULL THEN g END AS group,
+            CASE WHEN f IS NULL THEN false ELSE true END AS is_following
+
+        LIMIT toInteger($remainder)
+
+        MERGE (u)-[s:SEEN]->(p)
+        SET s.seenAt = datetime() 
+        RETURN p, creator, group, is_following
+        `,
+            { id, remainder },
+          );
+          const seen_postResults = seen_posts.records.map((rec) =>
+            mapContent(rec, "p", "post"),
+          );
+          allResults = [...allResults, ...seen_postResults];
+        }
       }
 
-      res.json(allResults);
+      const response = {
+        message: "feed fetched succesfully ",
+        feed: allResults,
+      };
+      res.json(response);
     } else {
       // TODO:
       // 1- check if the user liked any posts
@@ -245,7 +287,126 @@ RETURN p2 AS reels, creator, is_following
       //      2- normal suggestions if he has liked posts and reels
       //
       // --- Else case: user follows no one ---
-      res.send("this is the else case");
+      // Step 1: check if user liked any posts or reels
+      const liked_count = await tx.run(
+        `
+        MATCH (u:User {id: $id})-[:LIKED]->(c)
+        WHERE c:Post OR c:REEL
+        RETURN COUNT(c) AS likes
+        `,
+        { id },
+      );
+      const hasLikes = liked_count.records[0].get("likes").toInt() > 0;
+
+      let postResults = [];
+      let reelResults = [];
+
+      if (hasLikes) {
+        // --- Case 1: user has likes → suggest posts/reels ---
+
+        // 8 posts suggestions
+        const suggestedPosts = await tx.run(
+          `
+          MATCH (u:User {id: $id})-[:LIKED]->(p:Post)
+          MATCH (p)-[:HAS_TAG|:TAGGED_WITH]->(tagOrHash)
+          MATCH (p2:Post)-[:HAS_TAG|:TAGGED_WITH]->(tagOrHash)
+          WHERE p2 <> p
+            AND NOT (u)-[:SEEN]->(p2)
+            AND p2.privacy <> "private"
+          OPTIONAL MATCH (creator:User)-[:CREATED]->(p2)
+          OPTIONAL MATCH (u)-[f:FOLLOW]->(creator)
+          WITH u, p2, creator, COALESCE(f IS NOT NULL, false) AS is_following, COUNT(tagOrHash) AS relevanceScore
+          ORDER BY relevanceScore DESC
+          LIMIT 8
+          MERGE (u)-[s:SEEN]->(p2)
+          SET s.seenAt = datetime()
+          RETURN p2, creator, is_following
+          `,
+          { id },
+        );
+        postResults = suggestedPosts.records.map((rec) =>
+          mapContent(rec, "p2", "post"),
+        );
+
+        // 2 reels suggestions
+        const suggestedReels = await tx.run(
+          `
+          MATCH (u:User {id: $id})-[:LIKED]->(p:REEL)
+          MATCH (p2:REEL)
+          WHERE p2 <> p
+            AND NOT (u)-[:SEEN]->(p2)
+            AND p2.privacy <> "private"
+          OPTIONAL MATCH (creator:User)-[:CREATED]->(p2)
+          OPTIONAL MATCH (u)-[f:FOLLOW]->(creator)
+          WITH u, p2, creator, COALESCE(f IS NOT NULL, false) AS is_following
+          LIMIT 2
+          MERGE (u)-[s:SEEN]->(p2)
+          SET s.seenAt = datetime()
+          RETURN p2 AS reels, creator, is_following
+          `,
+          { id },
+        );
+        reelResults = suggestedReels.records.map((rec) =>
+          mapContent(rec, "reels", "reel"),
+        );
+      } else {
+        // --- Case 2: no likes → trending content (seen the most in past 1 day) ---
+
+        // 8 trending posts
+        const trendingPosts = await tx.run(
+          `
+          
+MATCH (u:User {id: $id})
+MATCH (p:Post)<-[s:SEEN]-()
+WHERE s.seenAt > datetime() - duration('P1D')
+  AND NOT (u)-[:SEEN]->(p)
+WITH u, p, COUNT(s) AS seenCount
+ORDER BY seenCount DESC
+LIMIT 8
+MATCH (creator:User)-[:CREATED]->(p)
+OPTIONAL MATCH (u)-[f:FOLLOW]->(creator)
+WITH u, p, creator, COALESCE(f IS NOT NULL, false) AS is_following
+MERGE (u)-[s2:SEEN]->(p)
+SET s2.seenAt = datetime()
+RETURN p, creator, is_following
+         `,
+          { id },
+        );
+        postResults = trendingPosts.records.map((rec) =>
+          mapContent(rec, "p", "post"),
+        );
+
+        // 2 trending reels
+        const trendingReels = await tx.run(
+          `
+          
+MATCH (u:User {id: $id})
+MATCH (r:REEL)<-[s:SEEN]-()
+WHERE s.seenAt > datetime() - duration('P1D')
+  AND NOT (u)-[:SEEN]->(r)
+WITH u, r, COUNT(s) AS seenCount
+ORDER BY seenCount DESC
+LIMIT 2
+MATCH (creator:User)-[:CREATED]->(r)
+OPTIONAL MATCH (u)-[f:FOLLOW]->(creator)
+WITH u, r, creator, COALESCE(f IS NOT NULL, false) AS is_following
+MERGE (u)-[s2:SEEN]->(r)
+SET s2.seenAt = datetime()
+RETURN r AS reels, creator, is_following
+
+          `,
+          { id },
+        );
+        reelResults = trendingReels.records.map((rec) =>
+          mapContent(rec, "reels", "reel"),
+        );
+      }
+
+      const response = {
+        message: "feed fetched succesfully (dead-case)",
+        feed: [...postResults, ...reelResults],
+      };
+      res.json(response);
     }
   } catch (error) {
     console.error("a feed error", error);
