@@ -40,4 +40,8 @@ services:
       - NEO4J_AUTH=neo4j/helloworld
     volumes:
       - /c/neo4j_docker_data:/data  
-    
+  python-service:
+    build: ./AI-Model
+    container_name: tags-extractor 
+    ports:
+      - "5000:5000"

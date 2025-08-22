@@ -1,8 +1,7 @@
 import { driver } from "../neo4j/Driver.js";
 // TODO :
-// 3- fix ( it's returning the same posts even thoug they are seen by the user !!! )
-// 4- add the dead-case (return 8 posts and 2 reels to the user in this case ) .
-//
+// 1- let the return of already seen posts be returning posts created by a week ago  (or a day is better );
+// 2- remvoe the blocked people .
 // Format Neo4j DateTime into ISO string
 export function formatDateTime(dt) {
   if (!dt) return null;
