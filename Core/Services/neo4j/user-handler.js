@@ -189,7 +189,7 @@ export async function unfollowUser(id, target) {
 }
 
 export async function request_follow(id, target) {
-  const sesstion = driver.session();
+  const session = driver.session();
   const query = `
     MATCH (a:User {id: $id}), (b:User {id: $target})
     MERGE (a)-[:REQUESTED]->(b)
@@ -204,6 +204,7 @@ export async function request_follow(id, target) {
   } catch (error) {
     console.error("Error requesting follow user:", error);
   }
+  await session.close();
 }
 
 export async function request_follow_withdrawn(id, target) {
