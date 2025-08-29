@@ -120,7 +120,7 @@ export async function group(req, res) {
       hits.map(async (hit) => {
         const normalized = normalizeGroup(hit._source);
 
-        const member = await is_member(normalized.id, userId);
+        const member = await is_member(userId, normalized.id);
 
         return {
           ...normalized,
