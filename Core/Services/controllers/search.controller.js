@@ -1,6 +1,7 @@
 import axios from "axios";
 import is_following from "../helpers/is_following.helper.js"; // adjust path as needed
 import is_member from "../helpers/is_member.helper.js";
+import get_user from "../helpers/get_user.helper.js";
 // normalize ES _source into your app's user schema
 function normalizeUser(esUser) {
   return {
@@ -21,6 +22,22 @@ function normalizeGroup(esGroup) {
     privacy: esGroup.privacy || "public",
     bio: esGroup.bio || "",
     avatar: esGroup.avatar || null,
+  };
+}
+function normalizePost(hit, user, following = false) {
+  const src = hit._source;
+  return {
+    id: Number(hit._id),
+    text: src.text,
+    group_id: src.group_id,
+    media: src.media || [],
+    privacy: src.privacy,
+    created_at: src.created_at,
+    post_type: "post",
+    user: {
+      ...user,
+      is_following: following,
+    },
   };
 }
 
@@ -135,6 +152,68 @@ export async function group(req, res) {
       pagination: {
         page: Number(page),
         size: Number(groups.length),
+        total: esResponse.data.hits.total.value,
+      },
+    });
+  } catch (err) {
+    console.error("Elasticsearch error:", err.message);
+    return res.status(500).json({ error: "Search failed" });
+  }
+}
+
+export async function post(req, res) {
+  try {
+    const { q, page = 1, size = 10 } = req.query;
+    const userId = req.user.id;
+
+    if (!q) {
+      return res.status(400).json({ error: "Missing search query" });
+    }
+
+    const from = (page - 1) * size;
+
+    // search on text only
+    const esResponse = await axios.post("http://localhost:9200/posts/_search", {
+      from,
+      size,
+      query: {
+        bool: {
+          must: [
+            {
+              wildcard: {
+                text: `*${q}*`,
+              },
+            },
+          ],
+          filter: [
+            { term: { privacy: "public" } }, // only public posts
+          ],
+        },
+      },
+      sort: [{ created_at: { order: "desc" } }],
+    });
+
+    const hits = esResponse.data.hits?.hits || [];
+
+    const posts = await Promise.all(
+      hits.map(async (hit) => {
+        const src = hit._source;
+
+        // check follow state
+        const following = await is_following(src.user.id, userId);
+
+        // enrich user if needed
+        let userData = await get_user(src.user.id);
+
+        return normalizePost(hit, userData, following);
+      }),
+    );
+
+    return res.json({
+      posts,
+      pagination: {
+        page: Number(page),
+        size: Number(posts.length),
         total: esResponse.data.hits.total.value,
       },
     });

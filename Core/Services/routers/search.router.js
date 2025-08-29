@@ -4,5 +4,6 @@ const router = express.Router();
 
 router.get("/user", CONTROLLER.user);
 router.get("/group", CONTROLLER.group);
+router.get("/post", CONTROLLER.post);
 
 export default router;
