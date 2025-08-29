@@ -5,6 +5,7 @@ import * as User from "./neo4j/user-handler.js";
 import * as Post from "./neo4j/post-handler.js";
 import * as Comment from "./neo4j/comment-handler.js";
 import * as Group from "./neo4j/group-handler.js";
+import * as AD from "./neo4j/ad-handler.js";
 export async function startConsumer() {
   // Connect Redis
   // await redisService.connect();
@@ -77,12 +78,23 @@ export async function startConsumer() {
               console.log(
                 "hanlding the comment created case in the rabbit consumer ",
               );
-              await Comment.createComment(
-                event.data.user.id,
-                event.data.id,
-                event.data.text,
-                event.data.commentable_id,
-              );
+              console.log(event.data.commentable_type);
+              if (event.data.commentable_type === "Post") {
+                await Comment.createComment(
+                  event.data.user.id,
+                  event.data.id,
+                  event.data.text,
+                  event.data.commentable_id,
+                );
+              } else if (event.data.commentable_type === "Comment") {
+                console.log("creating a reply on a post");
+                await Comment.createReply(
+                  event.data.user.id,
+                  event.data.id,
+                  event.data.text,
+                  event.data.commentable_id,
+                );
+              }
 
               break;
             case "DeletedComment":
@@ -102,6 +114,12 @@ export async function startConsumer() {
               break;
             case "FollowRequest":
               await User.request_follow(event.data.id, event.data.target);
+              break;
+            case "ADCreated":
+              await AD.create(event.data);
+              break;
+            case "ADDeleted":
+              await AD.delete_ad(event.data.id);
               break;
             default:
               console.warn(`Unhandled event type: ${event.event_type}`);

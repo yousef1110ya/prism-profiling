@@ -160,7 +160,7 @@ RETURN {
 
 export async function groups(userId) {
   const session = driver.session();
-
+  console.log("entered the group suggestion function");
   try {
     const query = `
 MATCH (me:User {id: $userId})

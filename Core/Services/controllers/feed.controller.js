@@ -1,10 +1,10 @@
 import { driver } from "../neo4j/Driver.js";
 import * as SUGGEST from "./suggestions.controller.js";
+import { get_ad } from "./ad.controller.js";
 // TODO :
 // 1- let the return of already seen posts be returning posts created by a week ago  (or a day is better );
 // 2- remvoe the blocked people .
 // Format Neo4j DateTime into ISO string
-//
 
 const url = process.env.URL || "localhost:6000/api";
 
@@ -139,11 +139,11 @@ async function reels_query(tx, id) {
   if (reels.length === 0) {
     const reels_suggest = await tx.run(
       `
-         
 MATCH (a:User {id: $id})-[:LIKED]->(p:REEL)
 MATCH (p2:REEL)
 WHERE p2 <> p 
-  AND NOT (a)-[:SEEN]->(p2)
+  AND NOT (a)-[s:SEEN]->(p2)
+          WHERE s.seenAt >= datetime() -duration('P1D') 
   AND p2.privacy <> "private"
   AND NOT EXISTS {
     MATCH (a)-[:FOLLOW]->(:User)-[:CREATED]->(p2)
@@ -189,11 +189,13 @@ async function suggested_reels(id) {
   try {
     const reels_suggest = await session.run(
       `
-         
 MATCH (a:User {id: $id})-[:LIKED]->(p:REEL)
 MATCH (p2:REEL)
 WHERE p2 <> p 
-  AND NOT (a)-[:SEEN]->(p2)
+  AND NOT EXISTS{ 
+    MATCH (a)-[s:SEEN]->(p2)
+    WHERE  s.seenAt >= datetime() - duration('P1D') 
+  }
   AND p2.privacy <> "private"
   AND NOT EXISTS {
     MATCH (a)-[:FOLLOW]->(:User)-[:CREATED]->(p2)
@@ -204,10 +206,6 @@ WHERE p2 <> p
   // exclude reels from private groups
   AND NOT EXISTS {
     MATCH (p2)-[:BELONGS_TO]->(:Group {privacy: "private"})
-  }
-  // exclude any group reels where the user is a member/owner
-  AND NOT EXISTS {
-    MATCH (a)-[:IS_MEMBER|:OWNS]->(:Group)<-[:BELONGS_TO]-(p2)
   }
 OPTIONAL MATCH (p)-[:HAS_TAG]->(t:Tag)<-[:HAS_TAG]-(p2)
 WITH a, p, p2, collect(DISTINCT t) AS sharedTags
@@ -230,6 +228,7 @@ RETURN p2 AS reels, creator, is_following
     reels = reels_suggest.records.map((rec) =>
       mapContent(rec, "reels", "reel"),
     );
+    console.log("the reels are :", reels);
     return reels;
   } catch (error) {
     console.log("error suggesting reels", error);
@@ -435,6 +434,7 @@ RETURN r AS reels, creator, is_following
 }
 
 async function random_suggestions(id) {
+  console.log("entered the random suggestion function");
   const session = driver.session();
   const tx = session.beginTransaction();
   try {
@@ -485,7 +485,8 @@ async function feed_builder(id) {
       // --- Step 3: Posts from followed users ---
       const posts = await posts_query(tx, id);
       // --- Step 4: Reels ---
-      const reels = await reels_query(tx, id);
+      console.log("entering the ad feild");
+      const ad = await get_ad(id);
       // --- Step 5: Map results ---
       const suggestionResults = suggestions.records.map((rec) =>
         mapContent(rec, "p2", "suggestion"),
@@ -493,9 +494,9 @@ async function feed_builder(id) {
       const postResults = posts.records.map((rec) =>
         mapContent(rec, "p", "post"),
       );
-      const reelResults = reels.map((rec) => mapContent(rec, "reels", "reel"));
       // --- step 6: arrangin array ---
-      let allResults = [...postResults, ...suggestionResults, ...reelResults];
+      console.log("the ad is:", ad);
+      let allResults = [...postResults, ...suggestionResults, ad];
       // --- step 7: filling missing posts ---
       if (allResults.length < 10) {
         const remaining = Math.floor(10 - allResults.length);
@@ -525,7 +526,9 @@ async function feed_builder(id) {
       return allResults;
     } else {
       // --- handling the dead_case "the user follows no one" ---
-      const full_results = await dead_case_query(tx, id);
+      const ad = await get_ad(id);
+      let full_results = await dead_case_query(tx, id);
+      full_results = [...full_results, ad];
       return full_results;
     }
   } catch (error) {
@@ -542,12 +545,22 @@ async function call_function(page, req) {
     case 1:
       // --- suggest profiles ---
       const profiles = await SUGGEST.users(parseInt(req.user.id));
-      return profiles;
+      const result = {
+        feed_type: "suggestions",
+        suggestion_type: "profiles",
+        feed: profiles,
+      };
+      return result;
       break;
     case 2:
       // --- suggest a random number of suggested posts ---
       const random = await random_suggestions(parseInt(req.user.id));
-      return random;
+      const random_result = {
+        feed_type: "posts",
+        suggestion_type: null,
+        feed: random,
+      };
+      return random_result;
       break;
     case 3:
       // --- suggesting groups : with 20% chanse to get already seen posts ---
@@ -568,7 +581,12 @@ async function call_function(page, req) {
           );
           console.log("========");
           console.log(seen_postResults);
-          return seen_postResults;
+          const seen_post_restule = {
+            feed_type: "posts",
+            suggestion_type: null,
+            feed: seen_postResults,
+          };
+          return seen_post_restule;
         } catch (error) {
           console.log("error returning seen posts fillers", error);
         } finally {
@@ -578,11 +596,22 @@ async function call_function(page, req) {
       }
       // --- suggesting normal groups ---
       const groups = await SUGGEST.groups(parseInt(req.user.id));
-      return groups;
+      const group_results = {
+        feed_type: "suggestions",
+        suggestion_type: "groups",
+        feed: groups,
+      };
+      return group_results;
       break;
     case 4:
       const feed_copy = await feed_builder(parseFloat(req.user.id));
-      return feed_copy;
+      const feed_copy_result = {
+        feed_type: "posts",
+        suggestion_type: null,
+        feed: feed_copy,
+      };
+
+      return feed_copy_result;
       break;
     case 5:
       //TODO:
@@ -590,11 +619,23 @@ async function call_function(page, req) {
       const suggested_reels_result = await suggested_reels(
         parseInt(req.user.id),
       );
-      return suggested_reels_result;
+      const reel_results = {
+        feed_type: "suggestions",
+        suggestion_type: "groups",
+        feed: suggested_reels_result,
+      };
+
+      return reel_results;
       break;
     default:
       const feed_array = await feed_builder(parseFloat(req.user.id));
-      return feed_array;
+      const feed_result = {
+        feed_type: "posts",
+        suggestion_type: null,
+        feed: feed_array,
+      };
+
+      return feed_result;
       break;
   }
 }
@@ -616,7 +657,9 @@ export async function feed(req, res) {
   };
   res.json({
     message: "feed fetched succesfully",
-    feed: result,
+    feed_type: result.feed_type,
+    suggestion_type: result.suggestion_type || null,
+    feed: result.feed,
     pageination,
   });
 }
