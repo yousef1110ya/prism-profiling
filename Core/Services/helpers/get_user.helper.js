@@ -14,7 +14,6 @@ async function get_user(user_id) {
       return [];
     }
     const creator = result.records[0].get("u1").properties;
-    console.log("the creator is :", creator);
     const returned = {
       id: user_id,
       name: creator.name || null,
