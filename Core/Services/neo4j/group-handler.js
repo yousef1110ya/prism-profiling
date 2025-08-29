@@ -91,6 +91,60 @@ export async function deleteGroup(id) {
   }
 }
 
+export async function request(group_id, user_id) {
+  const groupId = parseFloat(group_id);
+  const userId = parseFloat(user_id);
+  const session = driver.session();
+  try {
+    const result = await session.run(
+      `
+    MATCH (u:User {id: $userId}), (g:Group {id: $groupId})
+    MERGE (u)-[:REQUESTED]->(g)
+    RETURN u.id AS userId, g.id AS groupId
+    `,
+      { userId, groupId },
+    );
+
+    if (result.records.length > 0) {
+      const record = result.records[0];
+      console.log(
+        `User ${record.get("userId")} requested Group ${record.get("groupId")}`,
+      );
+    }
+  } catch (error) {
+    console.error("error is request group-handler", error);
+  } finally {
+    await session.close();
+  }
+}
+export async function un_request(group_id, user_id) {
+  const session = driver.session();
+  try {
+    const result = await session.run(
+      `
+      MATCH (u:User {id: $userId})-[r:REQUESTED]->(g:Group {id: $groupId})
+      DELETE r
+      RETURN COUNT(r) AS deletedCount
+      `,
+      { userId: user_id, groupId: group_id },
+    );
+
+    if (result.records.length === 0) {
+      console.log("No REQUESTED relationship found to delete.");
+      return 0;
+    }
+
+    const deletedCount = result.records[0].get("deletedCount").toInt();
+    console.log(`Deleted ${deletedCount} REQUESTED relationship(s)`);
+    return deletedCount;
+  } catch (error) {
+    console.error("error in un_request group-handler", error);
+    throw error;
+  } finally {
+    await session.close();
+  }
+}
+
 export async function joinGroup(groupId, userId) {
   groupId = parseFloat(groupId);
   userId = parseFloat(userId);
@@ -101,6 +155,9 @@ export async function joinGroup(groupId, userId) {
       `
     MATCH(u:User {id: $userId}) 
     MATCH(g:Group {id: $groupId}) 
+// Delete REQUESTED relationship if it exists
+OPTIONAL MATCH (u)-[r:REQUESTED]->(g)
+DELETE r
     MERGE (u)-[l:IS_MEMBER]->(g)
     SET l.joinedAt = datetime()  
     `,

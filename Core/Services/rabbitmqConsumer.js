@@ -115,6 +115,12 @@ export async function startConsumer() {
             case "FollowRequest":
               await User.request_follow(event.data.id, event.data.target);
               break;
+            case "RequsetedGroup":
+              await Group.request(event.data.id, event.data.user);
+              break;
+            case "UnRequsetedGroup":
+              await Group.un_request(event.data.id, event.data.user);
+              break;
             case "ADCreated":
               await AD.create(event.data);
               break;

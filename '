@@ -1,9 +1,7 @@
 import axios from "axios";
-import is_following from "../helpers/is_following.helper.js";
+import is_following from "../helpers/is_following.helper.js"; // adjust path as needed
 import is_member from "../helpers/is_member.helper.js";
-import is_requested from "../helpers/is_requested.helper.js";
 import get_user from "../helpers/get_user.helper.js";
-import user_group_status from "../helpers/user_group_status.helper.js";
 import { driver } from "../neo4j/Driver.js";
 
 // normalize ES _source into your app's user schema
@@ -13,21 +11,19 @@ function normalizeUser(esUser) {
     username: esUser.username,
     name: esUser.name,
     avatar: esUser.avatar,
+    bio: esUser.bio || "",
     isPrivate: esUser.is_private === "1",
+    personalInfo: esUser.personal_info,
   };
 }
 
-async function normalizeGroup(esGroup, user_id) {
-  const status = await user_group_status(user_id, esGroup.id);
+function normalizeGroup(esGroup) {
   return {
     id: esGroup.id,
     name: esGroup.name,
     privacy: esGroup.privacy || "public",
     bio: esGroup.bio || "",
     avatar: esGroup.avatar || null,
-    join_status: status.join_status,
-    members_count: status.members_count,
-    role: status.role,
   };
 }
 function normalizePost(hit, user, following = false) {
@@ -49,7 +45,7 @@ function normalizePost(hit, user, following = false) {
 
 export async function user(req, res) {
   try {
-    const { q, page = 1, size = 10, perPage = 10 } = req.query; // pagination + search string
+    const { q, page = 1, size = 10 } = req.query; // pagination + search string
     console.log(req.query);
     const userId = req.user.id; // current logged-in user
 
@@ -69,6 +65,7 @@ export async function user(req, res) {
           should: [
             { wildcard: { name: `*${q}*` } },
             { wildcard: { username: `*${q}*` } },
+            { wildcard: { bio: `*${q}*` } },
           ],
         },
       },
@@ -81,24 +78,22 @@ export async function user(req, res) {
       hits.map(async (hit) => {
         const normalized = normalizeUser(hit._source);
 
-        const following = await is_following(userId, normalized.id);
-        const requested = await is_requested(userId, normalized.id);
+        const following = await is_following(normalized.id, userId);
+
         return {
           ...normalized,
           is_following: following || false,
-          is_requested: requested || false,
         };
       }),
     );
 
     // 3. Send paginated response
     return res.json({
-      accounts: users,
+      users,
       pagination: {
-        current_page: Number(page),
-        per_page: Number(perPage), // you’ll need to pass perPage from req.query or config
+        page: Number(page),
+        size: Number(users.length),
         total: esResponse.data.hits.total.value,
-        last_page: Math.ceil(esResponse.data.hits.total.value / perPage),
       },
     });
   } catch (err) {
@@ -142,29 +137,24 @@ export async function group(req, res) {
     // 2. Normalize and enrich with is_following
     const groups = await Promise.all(
       hits.map(async (hit) => {
-        const normalized = await normalizeGroup(hit._source, userId);
+        const normalized = normalizeGroup(hit._source);
 
-        //const member = await is_member(userId, normalized.id);
+        const member = await is_member(userId, normalized.id);
 
         return {
           ...normalized,
-          // is_member: member || false,
+          is_member: member || false,
         };
       }),
     );
 
-    const perPage = Number(size) || groups.length; // or your requested page size
-    const currentPage = Number(page) || 1;
-    const totalItems = esResponse.data.hits.total.value;
-    const lastPage = Math.ceil(totalItems / perPage);
-
+    // 3. Send paginated response
     return res.json({
       groups,
       pagination: {
-        current_page: currentPage,
-        per_page: perPage,
-        total: totalItems,
-        last_page: lastPage,
+        page: Number(page),
+        size: Number(groups.length),
+        total: esResponse.data.hits.total.value,
       },
     });
   } catch (err) {
@@ -177,44 +167,34 @@ export async function post(req, res) {
   try {
     const { q, page = 1, size = 10 } = req.query;
     const userId = req.user.id;
-    let esResponse;
+
     if (!q) {
       return res.status(400).json({ error: "Missing search query" });
     }
-    const from = (page - 1) * size;
-    if (q.startsWith("#")) {
-      console.log("First character is #", q);
 
-      esResponse = await axios.post("http://localhost:9200/posts/_search", {
-        from,
-        size,
-        query: {
-          match: {
-            text: q,
-          },
-        },
-      });
-    } else {
-      esResponse = await axios.post("http://localhost:9200/posts/_search", {
-        from,
-        size,
-        query: {
-          bool: {
-            must: [
-              {
-                wildcard: {
-                  text: `*${q}*`,
-                },
+    const from = (page - 1) * size;
+
+    // search on text only
+    const esResponse = await axios.post("http://localhost:9200/posts/_search", {
+      from,
+      size,
+      query: {
+        bool: {
+          must: [
+            {
+              wildcard: {
+                text: `*${q}*`,
               },
-            ],
-            filter: [
-              { term: { privacy: "public" } }, // only public posts
-            ],
-          },
+            },
+          ],
+          filter: [
+            { term: { privacy: "public" } }, // only public posts
+          ],
         },
-        sort: [{ created_at: { order: "desc" } }],
-      });
-    }
+      },
+      sort: [{ created_at: { order: "desc" } }],
+    });
+
     const hits = esResponse.data.hits?.hits || [];
 
     const posts = await Promise.all(
@@ -245,38 +225,4 @@ export async function post(req, res) {
   }
 }
 
-export async function hashtag(req, res) {
-  const session = driver.session();
-  try {
-    const { q, page = 1, pageSize = 10 } = req.query;
-    const skip = (page - 1) * pageSize;
-
-    const result = await session.run(
-      `
-      MATCH (h:Hashtag)<-[:TAGGED_WITH]-(p:Post)
-      WHERE h.name CONTAINS $searchString
-      WITH h, COUNT(p) AS postCount,
-           CASE WHEN h.name = $searchString THEN 0 ELSE 1 END AS exactMatchPriority
-      RETURN h.name AS hashtag, postCount
-      ORDER BY exactMatchPriority ASC, postCount DESC
-      SKIP toInteger($skip)
-      LIMIT toInteger($limit)
-      `,
-      { searchString: q, skip: parseInt(skip), limit: parseInt(pageSize) },
-    );
-
-    const hashtags = result.records.map((record) => ({
-      hashtag: record.get("hashtag"),
-      postCount: record.get("postCount").toNumber(),
-    }));
-    return res.json({
-      page: Number(page),
-      pageSize: Number(pageSize),
-      results: hashtags,
-    });
-  } catch (error) {
-    console.error("error in finding hastags>", error);
-  } finally {
-    await session.close();
-  }
-}
+export async function hashtag(req, res) {}

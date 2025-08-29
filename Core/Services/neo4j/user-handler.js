@@ -56,8 +56,10 @@ export async function createUser(id, email) {
 
 export async function updateUser(id, updates) {
   const session = driver.session();
+  id = parseFloat(id);
+
   const query = `
-    MATCH (u:User {id: $id})
+    MERGE (u:User {id: $id})
     SET u += $updates
     RETURN u
   `;
@@ -68,7 +70,7 @@ export async function updateUser(id, updates) {
     await session.close();
     console.log("updating the personal_info of the user ");
     await upsertUser(id, updates);
-    console.log("User updated:", result.records[0].get("u").properties);
+    console.log("User updated:", result);
   } catch (error) {
     console.error("Error updating user:", error);
   }
