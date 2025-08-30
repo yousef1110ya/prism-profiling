@@ -430,7 +430,7 @@ RETURN r AS reels, creator, is_following
   }
   console.log("just finished the dead=case");
   const full_results = [...postResults, ...reelResults];
-  if (!full_results) return [];
+  if (!full_results) return null;
   return full_results;
 }
 
@@ -548,9 +548,16 @@ async function call_function(page, req) {
   switch (page % 6) {
     case 1:
       // --- suggest profiles ---
+      let result;
       let profiles = await SUGGEST.users(parseInt(req.user.id));
-
-      const result = {
+      if (!profiles) {
+        const result = {
+          feed_type: "suggestions",
+          suggestion_type: "profiles",
+          feed: null,
+        };
+      }
+      result = {
         feed_type: "suggestions",
         suggestion_type: "profiles",
         feed: profiles,
@@ -560,10 +567,15 @@ async function call_function(page, req) {
     case 2:
       // --- suggest a random number of suggested posts ---
       let random = await random_suggestions(parseInt(req.user.id));
+      let random_result;
       if (!random) {
-        random = [];
+        random_result = {
+          feed_type: "posts",
+          suggestion_type: null,
+          feed: null,
+        };
       }
-      const random_result = {
+      random_result = {
         feed_type: "posts",
         suggestion_type: null,
         feed: random,
@@ -613,7 +625,15 @@ async function call_function(page, req) {
       break;
     case 4:
       const feed_copy = await feed_builder(parseFloat(req.user.id));
-      const feed_copy_result = {
+      let feed_copy_result;
+      if (!feed_copy) {
+        feed_copy_result = {
+          feed_type: "posts",
+          suggestion_type: null,
+          feed: null,
+        };
+      }
+      feed_copy_result = {
         feed_type: "posts",
         suggestion_type: null,
         feed: feed_copy,
