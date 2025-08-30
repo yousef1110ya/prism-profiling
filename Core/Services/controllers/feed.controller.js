@@ -496,7 +496,10 @@ async function feed_builder(id) {
       );
       // --- step 6: arrangin array ---
       console.log("the ad is:", ad);
-      let allResults = [...postResults, ...suggestionResults, ad];
+      let allResults = [...postResults, ...suggestionResults];
+      if (ad) {
+        allResults = [...allResults, ad];
+      }
       // --- step 7: filling missing posts ---
       if (allResults.length < 10) {
         const remaining = Math.floor(10 - allResults.length);
@@ -544,7 +547,8 @@ async function call_function(page, req) {
   switch (page % 6) {
     case 1:
       // --- suggest profiles ---
-      const profiles = await SUGGEST.users(parseInt(req.user.id));
+      let profiles = await SUGGEST.users(parseInt(req.user.id));
+
       const result = {
         feed_type: "suggestions",
         suggestion_type: "profiles",
@@ -554,7 +558,10 @@ async function call_function(page, req) {
       break;
     case 2:
       // --- suggest a random number of suggested posts ---
-      const random = await random_suggestions(parseInt(req.user.id));
+      let random = await random_suggestions(parseInt(req.user.id));
+      if (!random) {
+        random = [];
+      }
       const random_result = {
         feed_type: "posts",
         suggestion_type: null,
