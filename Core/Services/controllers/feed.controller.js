@@ -430,6 +430,7 @@ RETURN r AS reels, creator, is_following
   }
   console.log("just finished the dead=case");
   const full_results = [...postResults, ...reelResults];
+  if (!full_results) return [];
   return full_results;
 }
 
